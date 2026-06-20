@@ -24,7 +24,7 @@ from app.schemas.flow_account import (
     FlowAccountUpdate,
 )
 from app.schemas.generation import BatchPublicIdsIn, TaskDetailOut, TaskEventOut, TaskListOut, TaskOut
-from app.schemas.user import UserOut, UserUpdate
+from app.schemas.user import UserOut, UserRecharge, UserUpdate
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_current_admin)])
 
@@ -360,8 +360,25 @@ async def update_user(user_id: int, payload: UserUpdate, db: AsyncSession = Depe
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(404, "用户不存在")
-    for k, v in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    if "email" in changes and changes["email"] != user.email:
+        existing = await db.scalar(select(User).where(User.email == changes["email"], User.id != user_id))
+        if existing:
+            raise HTTPException(400, "邮箱已被使用")
+    for k, v in changes.items():
         setattr(user, k, v)
+    await db.flush()
+    await db.refresh(user)
+    return user
+
+
+@router.post("/users/{user_id}/recharge", response_model=UserOut)
+async def recharge_user(user_id: int, payload: UserRecharge, db: AsyncSession = Depends(get_db)):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "用户不存在")
+    user.daily_image_quota += max(0, payload.image_quota)
+    user.daily_video_quota += max(0, payload.video_quota)
     await db.flush()
     await db.refresh(user)
     return user

@@ -19,11 +19,17 @@ class UserOut(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    email: EmailStr | None = None
     full_name: str | None = None
     is_active: bool | None = None
     role: UserRole | None = None
     daily_image_quota: int | None = None
     daily_video_quota: int | None = None
+
+
+class UserRecharge(BaseModel):
+    image_quota: int = 0
+    video_quota: int = 0
 
 
 class QuotaUsage(BaseModel):

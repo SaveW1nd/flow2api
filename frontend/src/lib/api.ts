@@ -104,3 +104,10 @@ export interface Me {
 }
 
 export const getMe = () => api<Me>("/auth/me");
+
+export async function changePassword(old_password: string, new_password: string) {
+  return api("/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ old_password, new_password }),
+  });
+}
