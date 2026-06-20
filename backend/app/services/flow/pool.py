@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.enums import AccountStatus, AccountType
 from app.models.flow_account import FlowAccount
+from app.services.flow.account_type import sync_account_type
 from app.services.flow.client import FlowCredential, FlowError
 
 GLOBAL_KEY = "flow:concurrency:global"
@@ -137,6 +138,7 @@ def mark_success(db: Session, account: FlowAccount, remaining_credits: int | Non
     account.last_error = None
     if remaining_credits is not None:
         account.remaining_credits = remaining_credits
+        sync_account_type(account)
     db.commit()
 
 

@@ -13,6 +13,7 @@ from app.models.enums import AccountStatus, ApiKeyStatus, TaskStatus, TaskType
 from app.models.flow_account import FlowAccount
 from app.models.generation import GenerationTask, GenerationTaskEvent
 from app.models.user import User
+from app.services.flow.account_type import sync_account_type
 from app.schemas.api_key import ApiKeyBatchDelete, ApiKeyCreate, ApiKeyCreatedOut, ApiKeyOut, ApiKeyUpdate
 from app.schemas.flow_account import (
     FlowAccountBatchDelete,
@@ -38,6 +39,7 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
         if account.google_cookies and not account.cookies_expires_at:
             account.cookies_expires_at = _cookie_expiry(account.google_cookies)
             changed = changed or bool(account.cookies_expires_at)
+        changed = sync_account_type(account) or changed
     if changed:
         await db.flush()
     return [FlowAccountOut.from_account(a) for a in rows]
