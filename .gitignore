@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Env
+.env
+*.local
+
+# Node / Next
+node_modules/
+.next/
+out/
+dist/
+npm-debug.log*
+yarn-error.log*
+
+# Data / volumes
+postgres_data/
+minio_data/
+redis_data/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
