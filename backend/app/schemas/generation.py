@@ -32,6 +32,7 @@ class TaskOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     public_id: str
+    account_id: int | None = None
     type: TaskType
     status: TaskStatus
     progress: int
@@ -40,6 +41,7 @@ class TaskOut(BaseModel):
     outputs: list[dict[str, Any]]
     error: str | None
     created_at: datetime
+    started_at: datetime | None = None
     finished_at: datetime | None
 
 

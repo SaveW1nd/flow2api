@@ -17,6 +17,23 @@ const STATUS_STYLE: Record<string, string> = {
   cancelled: "bg-white/10 text-slate-400",
 };
 
+function shortId(id: string) {
+  return id.length > 12 ? `${id.slice(0, 8)}...${id.slice(-4)}` : id;
+}
+
+function durationText(task: Task) {
+  const start = new Date(task.started_at || task.created_at).getTime();
+  const end = task.finished_at ? new Date(task.finished_at).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "—";
+  const seconds = Math.max(0, Math.round((end - start) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes < 60) return `${minutes}m ${rest}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
 export default function AdminLogsPage() {
   const [data, setData] = useState<TaskList | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -111,7 +128,7 @@ export default function AdminLogsPage() {
               </button>
             </div>
           )}
-          <table className="w-full min-w-[920px] text-[13px]">
+          <table className="w-full min-w-[960px] text-[13px]">
             <thead className="border-b border-white/[0.06] text-left text-xs uppercase text-slate-500">
               <tr>
                 <th className="px-4 py-2.5">
@@ -121,9 +138,10 @@ export default function AdminLogsPage() {
                     onChange={(e) => setSelected(e.target.checked ? data?.items.map((t) => t.public_id) ?? [] : [])}
                   />
                 </th>
-                <th className="px-4 py-2.5">任务</th>
+                <th className="px-4 py-2.5">任务 / 提示词</th>
                 <th className="px-4 py-2.5">状态 / 进度</th>
                 <th className="px-4 py-2.5">账号</th>
+                <th className="px-4 py-2.5">耗时</th>
                 <th className="px-4 py-2.5">请求</th>
                 <th className="px-4 py-2.5">结果链接</th>
                 <th className="px-4 py-2.5">时间</th>
@@ -147,15 +165,20 @@ export default function AdminLogsPage() {
                       }
                     />
                   </td>
-                  <td className="px-4 py-2.5">
-                    <div className="font-mono text-xs text-slate-300">{t.public_id}</div>
-                    <div className="mt-1 line-clamp-1 text-slate-500">{t.prompt}</div>
+                  <td className="max-w-[260px] px-4 py-2.5">
+                    <div className="font-mono text-xs text-slate-300" title={t.public_id}>
+                      {shortId(t.public_id)}
+                    </div>
+                    <div className="mt-1 truncate text-slate-500" title={t.prompt}>
+                      {t.prompt}
+                    </div>
                   </td>
                   <td className="px-4 py-2.5">
                     <span className={cn("badge", STATUS_STYLE[t.status])}>{t.status}</span>
                     <div className="mt-1 text-xs text-slate-400">{t.progress}%</div>
                   </td>
                   <td className="px-4 py-2.5 text-slate-400">{t.account_id ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-xs text-slate-300">{durationText(t)}</td>
                   <td className="px-4 py-2.5 text-xs text-slate-400">
                     <div>{t.type}</div>
                     <div>{String(t.params.model ?? "default")}</div>
