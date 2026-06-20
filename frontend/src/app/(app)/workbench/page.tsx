@@ -5,6 +5,7 @@ import { Download, Film, ImageIcon, Loader2, Sparkles, Wand2 } from "lucide-reac
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { toast } from "@/components/ui/Toast";
 import type { QuotaUsage } from "@/lib/types";
 import { useTaskProgress } from "@/lib/useTaskProgress";
 import { cn } from "@/lib/utils";
@@ -54,14 +55,14 @@ export default function WorkbenchPage() {
               aspect_ratio: ratio,
               num_outputs: numOutputs,
             }
-          : { prompt, aspect_ratio: ratio, duration };
+          : { prompt, aspect_ratio: ratio, duration, resolution: "VIDEO_RESOLUTION_1080P" };
       const res = await api<{ public_id: string }>(`/generate/${mode}`, {
         method: "POST",
         body: JSON.stringify(body),
       });
       track(res.public_id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "提交失败");
+      toast.error(err instanceof Error ? err.message : "提交失败");
     } finally {
       setSubmitting(false);
     }
@@ -76,16 +77,16 @@ export default function WorkbenchPage() {
     <div>
       <Header />
 
-      <div className="mt-8 grid gap-6 xl:grid-cols-[380px_1fr]">
+      <div className="mt-5 grid gap-4 xl:grid-cols-[340px_1fr]">
         {/* 参数面板 */}
-        <div className="card h-fit p-6">
+        <div className="card h-fit p-4">
           <ModeSwitch mode={mode} setMode={setMode} />
 
-          <div className="mt-6 space-y-5">
+          <div className="mt-4 space-y-4">
             <div>
               <label className="label">创意描述 Prompt</label>
               <textarea
-                className="input min-h-[120px] resize-none"
+                className="input min-h-[104px] resize-none"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder={
@@ -116,7 +117,7 @@ export default function WorkbenchPage() {
                     key={r}
                     onClick={() => setRatio(r)}
                     className={cn(
-                      "rounded-lg px-3 py-1.5 text-xs font-medium transition",
+                      "rounded-md px-3 py-1.5 text-xs transition",
                       ratio === r
                         ? "bg-brand-500 text-white shadow-glow"
                         : "glass text-slate-300 hover:bg-white/10"
@@ -173,7 +174,7 @@ export default function WorkbenchPage() {
         </div>
 
         {/* 预览区 */}
-        <div className="card min-h-[480px] p-6">
+        <div className="card min-h-[440px] p-4">
           <ResultArea mode={mode} state={state} />
         </div>
       </div>
@@ -187,8 +188,8 @@ function Header() {
       <div className="mb-1 inline-flex items-center gap-2 text-xs text-brand-300">
         <Sparkles className="h-3.5 w-3.5" /> AIGC 创作工作台
       </div>
-      <h1 className="text-2xl font-bold text-white">开始你的创作</h1>
-      <p className="mt-1 text-sm text-slate-400">
+      <h1 className="page-title">开始你的创作</h1>
+      <p className="page-sub">
         输入创意描述,选择参数,实时查看生成进度与结果。
       </p>
     </div>
@@ -197,7 +198,7 @@ function Header() {
 
 function ModeSwitch({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) {
   return (
-    <div className="flex rounded-xl bg-ink-900/60 p-1">
+    <div className="flex rounded-md bg-ink-900/60 p-1">
       {([
         { id: "image", label: "出图", icon: ImageIcon },
         { id: "video", label: "出视频", icon: Film },
@@ -206,7 +207,7 @@ function ModeSwitch({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void 
           key={m.id}
           onClick={() => setMode(m.id)}
           className={cn(
-            "flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition",
+            "flex flex-1 items-center justify-center gap-2 rounded py-2 text-[13px] transition",
             mode === m.id
               ? "bg-gradient-to-r from-brand-500 to-cyanx-500 text-white shadow-glow"
               : "text-slate-400 hover:text-slate-200"
@@ -225,7 +226,7 @@ function QuotaBar({ quota, mode }: { quota: QuotaUsage; mode: Mode }) {
   const total = mode === "image" ? quota.daily_image_quota : quota.daily_video_quota;
   const pct = total ? Math.min(100, (used / total) * 100) : 0;
   return (
-    <div className="rounded-xl bg-ink-900/40 p-3">
+    <div className="rounded-md bg-ink-900/40 p-3">
       <div className="mb-1.5 flex justify-between text-xs text-slate-400">
         <span>今日{mode === "image" ? "出图" : "出视频"}额度</span>
         <span className="text-slate-300">
@@ -257,10 +258,10 @@ function ResultArea({ mode, state }: { mode: Mode; state: ReturnType<typeof useT
   return (
     <div className="flex h-full flex-col">
       <div className="mb-4 flex items-center justify-between">
-        <span className="text-sm font-medium text-slate-300">预览</span>
+        <span className="text-[13px] text-slate-300">预览</span>
         <span
           className={cn(
-            "rounded-full px-2.5 py-1 text-xs font-medium",
+            "rounded px-2.5 py-1 text-xs",
             state.status === "succeeded" && "bg-emerald-500/15 text-emerald-300",
             state.status === "failed" && "bg-red-500/15 text-red-300",
             isBusy && "bg-brand-500/15 text-brand-300",
@@ -302,7 +303,7 @@ function ResultArea({ mode, state }: { mode: Mode; state: ReturnType<typeof useT
               {Array.from({ length: mode === "image" ? 2 : 1 }).map((_, i) => (
                 <div
                   key={i}
-                  className="relative aspect-square overflow-hidden rounded-2xl bg-ink-900/60"
+                  className="relative aspect-square overflow-hidden rounded-md bg-ink-900/60"
                 >
                   <div className="absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
                 </div>
@@ -351,8 +352,8 @@ function Placeholder() {
       exit={{ opacity: 0 }}
       className="text-center"
     >
-      <div className="mx-auto mb-4 grid h-16 w-16 animate-floaty place-items-center rounded-2xl bg-gradient-to-br from-brand-500/20 to-cyanx-500/10 text-brand-300">
-        <Sparkles className="h-7 w-7" />
+      <div className="mx-auto mb-4 grid h-14 w-14 animate-floaty place-items-center rounded-md bg-gradient-to-br from-brand-500/20 to-cyanx-500/10 text-brand-300">
+        <Sparkles className="h-6 w-6" />
       </div>
       <p className="text-sm text-slate-400">填写创意描述,点击「开始生成」</p>
     </motion.div>
@@ -361,7 +362,7 @@ function Placeholder() {
 
 function OutputCard({ url, type }: { url: string; type: string }) {
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-ink-900/60">
+    <div className="group relative overflow-hidden rounded-md border border-white/10 bg-ink-900/60">
       {type === "video" ? (
         <video src={url} controls className="w-full" />
       ) : (
@@ -373,7 +374,7 @@ function OutputCard({ url, type }: { url: string; type: string }) {
         download
         target="_blank"
         rel="noreferrer"
-        className="absolute right-3 top-3 grid h-9 w-9 place-items-center rounded-lg bg-black/50 text-white opacity-0 backdrop-blur transition group-hover:opacity-100"
+        className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-md bg-black/50 text-white opacity-0 backdrop-blur transition group-hover:opacity-100"
       >
         <Download className="h-4 w-4" />
       </a>

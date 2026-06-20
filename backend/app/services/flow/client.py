@@ -47,6 +47,9 @@ class FlowCredential:
     bearer: str
     project_id: str | None = None
     session_id: str | None = None
+    session_token: str | None = None
+    google_cookies: str | None = None
+    proxy: str | None = None
     browser_headers: dict[str, str] = field(default_factory=dict)
 
 
@@ -92,13 +95,15 @@ def _classify(status: int, body: Any) -> FlowError | None:
 
 
 class FlowClient:
-    def __init__(self, credential: FlowCredential, use_curl: bool | None = None, impersonate: str = "chrome136"):
+    def __init__(self, credential: FlowCredential, use_curl: bool | None = None, impersonate: str = "chrome124"):
         self.cred = credential
         self.use_curl = (_curl_requests is not None) if use_curl is None else (use_curl and _curl_requests is not None)
         self.impersonate = impersonate
 
     # ----------------------------- 出图 ----------------------------- #
     def submit_image(self, prompt: str, params: dict[str, Any], recaptcha_token: str) -> FlowResult:
+        if not self.cred.project_id:
+            raise FlowError("账号缺少 project_id(出图为项目作用域)", retryable=False, kind="auth")
         body = P.build_image_body(
             prompt=prompt,
             model=params.get("model", P.DEFAULT_IMAGE_MODEL),
@@ -109,7 +114,7 @@ class FlowClient:
             seed=params.get("seed") or 0,
             num_images=params.get("num_outputs", 1),
         )
-        status, data = self._request("POST", P.EP_IMAGE_GENERATE, body)
+        status, data = self._request("POST", P.image_generate_path(self.cred.project_id), body)
         err = _classify(status, data)
         if err:
             raise err
@@ -180,6 +185,10 @@ class FlowClient:
 
     # ----------------------------- 媒体下载 ----------------------------- #
     def _download_media_bytes(self, media_name: str) -> bytes:
+        # Flow UI's "1080P" download uses the Labs redirect for "<media_id>_upsampled".
+        upsampled = self._download_labs_redirect_bytes(media_name + "_upsampled")
+        if upsampled:
+            return upsampled
         status, obj = self._request_url("GET", P.media_url(media_name), None, timeout=180)
         err = _classify(status, obj)
         if err:
@@ -189,22 +198,90 @@ class FlowClient:
             raise FlowError("media 响应无 encodedVideo", retryable=True)
         return base64.b64decode(b64)
 
+    def _labs_cookie_header(self) -> str:
+        text = (self.cred.google_cookies or "").strip()
+        cookies: list[dict] = []
+        if not text:
+            return ""
+        try:
+            data = json.loads(text)
+            if isinstance(data, list):
+                cookies = [x for x in data if isinstance(x, dict)]
+            elif isinstance(data, dict) and isinstance(data.get("cookies"), list):
+                cookies = [x for x in data["cookies"] if isinstance(x, dict)]
+        except json.JSONDecodeError:
+            return text
+        pairs = []
+        for item in cookies:
+            domain = item.get("domain", "")
+            name = item.get("name")
+            value = item.get("value")
+            if name and value and "labs.google" in domain:
+                pairs.append(f"{name}={value}")
+        return "; ".join(pairs)
+
+    def _download_labs_redirect_bytes(self, media_name: str) -> bytes | None:
+        if not self.cred.google_cookies:
+            return None
+        from app.services.flow.proxy import curl_proxies
+
+        headers = {
+            "Cookie": self._labs_cookie_header(),
+            "Referer": f"https://labs.google/fx/tools/flow/project/{self.cred.project_id or ''}",
+            "User-Agent": P.http_headers(self.cred.bearer).get("User-Agent", ""),
+        }
+        proxies = curl_proxies(self.cred.proxy)
+        try:
+            if self.use_curl:
+                s = _curl_requests.Session()
+                kwargs: dict[str, Any] = {
+                    "headers": headers,
+                    "timeout": 45,
+                    "impersonate": self.impersonate,
+                    "allow_redirects": True,
+                }
+                if proxies:
+                    kwargs["proxies"] = proxies
+                r = s.get(P.labs_media_redirect_url(media_name), **kwargs)
+                if r.status_code == 200 and (r.headers.get("content-type") or "").startswith("video/"):
+                    return r.content
+            else:
+                with httpx.Client(timeout=45, follow_redirects=True, proxy=(self.cred.proxy or None)) as client:
+                    r = client.get(P.labs_media_redirect_url(media_name), headers=headers)
+                    if r.status_code == 200 and (r.headers.get("content-type") or "").startswith("video/"):
+                        return r.content
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
     # ----------------------------- 底层 HTTP ----------------------------- #
     def _request(self, method: str, path: str, body: dict | None, timeout: int | None = None):
         return self._request_url(method, f"{P.BASE_URL}{path}", body, timeout)
 
     def _request_url(self, method: str, url: str, body: dict | None, timeout: int | None = None):
+        from app.services.flow.proxy import curl_proxies
+
         timeout = timeout or settings.FLOW_REQUEST_TIMEOUT
         headers = P.http_headers(self.cred.bearer, self.cred.browser_headers)
         data = None if body is None else json.dumps(body, ensure_ascii=False, separators=(",", ":"))
+        proxies = curl_proxies(self.cred.proxy)
         try:
             if self.use_curl:
-                s = _curl_requests.Session(impersonate=self.impersonate)
-                r = s.request(method, url, data=data, headers=headers, timeout=timeout)
+                # 注意:impersonate 必须在「请求级」传入(与已验证通过的直连一致);
+                # 放到 Session() 构造里会套用另一套默认头模板,导致 reCAPTCHA 评估失败。
+                s = _curl_requests.Session()
+                kwargs: dict[str, Any] = dict(
+                    data=data, headers=headers, timeout=timeout, impersonate=self.impersonate
+                )
+                if proxies:
+                    kwargs["proxies"] = proxies
+                r = s.request(method, url, **kwargs)
                 text = r.text
                 status = r.status_code
             else:
-                with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                with httpx.Client(
+                    timeout=timeout, follow_redirects=True, proxy=(self.cred.proxy or None)
+                ) as client:
                     r = client.request(method, url, content=data, headers=headers)
                     text = r.text
                     status = r.status_code
@@ -227,25 +304,39 @@ class FlowClient:
 
     @staticmethod
     def _extract_image_outputs(data: Any) -> list[dict[str, Any]]:
+        """解析 flowMedia:batchGenerateImages 响应。
+
+        真实结构(已实测):media[].image.generatedImage.fifeUrl 为签名 CDN 直链(可直接下载)。
+        同时兼容 base64(encodedImage)与其它 url 字段。
+        """
         if not isinstance(data, dict):
             raise FlowError("出图响应解析失败", retryable=True)
         outputs: list[dict[str, Any]] = []
-        # 兼容多种可能结构:images[].encodedImage / media[].image.encodedImage / url
-        for key in ("images", "generatedImages", "media", "results"):
-            for item in data.get(key, []) or []:
-                if not isinstance(item, dict):
-                    continue
-                b64 = (
-                    item.get("encodedImage")
-                    or (item.get("image") or {}).get("encodedImage")
-                    or item.get("imageBytes")
-                )
-                if b64:
-                    outputs.append({"type": "image", "bytes": base64.b64decode(b64), "ext": "png"})
-                    continue
-                url = item.get("url") or item.get("imageUrl") or (item.get("image") or {}).get("url")
-                if url:
-                    outputs.append({"type": "image", "url": url})
+        for item in data.get("media", []) or []:
+            if not isinstance(item, dict):
+                continue
+            img = item.get("image") or {}
+            gen = img.get("generatedImage") or {}
+            url = gen.get("fifeUrl") or img.get("fifeUrl") or gen.get("url")
+            if url:
+                outputs.append({"type": "image", "url": url})
+                continue
+            b64 = gen.get("encodedImage") or img.get("encodedImage")
+            if b64:
+                outputs.append({"type": "image", "bytes": base64.b64decode(b64), "ext": "png"})
+        # 兼容旧结构
+        if not outputs:
+            for key in ("images", "generatedImages", "results"):
+                for item in data.get(key, []) or []:
+                    if not isinstance(item, dict):
+                        continue
+                    b64 = item.get("encodedImage") or (item.get("image") or {}).get("encodedImage")
+                    if b64:
+                        outputs.append({"type": "image", "bytes": base64.b64decode(b64), "ext": "png"})
+                        continue
+                    url = item.get("url") or item.get("imageUrl")
+                    if url:
+                        outputs.append({"type": "image", "url": url})
         if not outputs:
             raise FlowError("出图未返回图像数据", retryable=True)
         return outputs

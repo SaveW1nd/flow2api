@@ -40,12 +40,12 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen">
-      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
+      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Logo />
         <span className="text-xs text-slate-400">企业级 AIGC 生成平台</span>
       </nav>
 
-      <main className="mx-auto grid max-w-7xl gap-12 px-6 pb-20 pt-10 lg:grid-cols-2 lg:pt-20">
+      <main className="mx-auto grid max-w-6xl items-center gap-10 px-6 pb-16 pt-8 lg:grid-cols-2 lg:pt-16">
         {/* Hero */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -56,7 +56,7 @@ export default function LandingPage() {
             <span className="h-1.5 w-1.5 rounded-full bg-cyanx-400 animate-pulse" />
             基于 FLOW 的高并发出图 / 出视频引擎
           </div>
-          <h1 className="text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">
+          <h1 className="text-2xl leading-tight tracking-tight text-white sm:text-3xl">
             让创意
             <span className="bg-gradient-to-r from-brand-400 to-cyanx-400 bg-clip-text text-transparent">
               一键成像
@@ -64,11 +64,11 @@ export default function LandingPage() {
             <br />
             出图与出视频，一站完成
           </h1>
-          <p className="mt-6 max-w-lg text-base leading-relaxed text-slate-400">
+          <p className="mt-4 max-w-lg text-sm leading-relaxed text-slate-400">
             面向团队与企业的多用户 AIGC 平台。强大的账号池调度与任务队列，支撑高并发稳定生成，管理员可精细配置额度与资源。
           </p>
 
-          <div className="mt-10 grid grid-cols-2 gap-4 sm:max-w-md">
+          <div className="mt-8 grid grid-cols-2 gap-3 sm:max-w-md">
             <Feature icon={<ImageIcon className="h-5 w-5" />} title="高清出图" desc="多比例 / 批量生成" />
             <Feature icon={<Film className="h-5 w-5" />} title="智能出视频" desc="文生视频 / 图生视频" />
             <Feature icon={<Zap className="h-5 w-5" />} title="高并发" desc="队列 + 账号池调度" />
@@ -83,13 +83,13 @@ export default function LandingPage() {
           transition={{ duration: 0.6, delay: 0.15 }}
           className="flex items-center"
         >
-          <div className="card w-full max-w-md p-8">
-            <div className="mb-6 flex rounded-xl bg-ink-900/60 p-1">
+          <div className="card w-full max-w-md p-6">
+            <div className="mb-5 flex rounded-md bg-ink-900/60 p-1">
               {(["login", "register"] as const).map((m) => (
                 <button
                   key={m}
                   onClick={() => setMode(m)}
-                  className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
+                  className={`flex-1 rounded py-1.5 text-[13px] transition ${
                     mode === m
                       ? "bg-gradient-to-r from-brand-500 to-cyanx-500 text-white shadow-glow"
                       : "text-slate-400 hover:text-slate-200"
@@ -100,7 +100,7 @@ export default function LandingPage() {
               ))}
             </div>
 
-            <form onSubmit={submit} className="space-y-4">
+            <form onSubmit={submit} className="space-y-3.5">
               {mode === "register" && (
                 <div>
                   <label className="label">昵称</label>
@@ -136,11 +136,7 @@ export default function LandingPage() {
                 />
               </div>
 
-              {error && (
-                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-                  {error}
-                </div>
-              )}
+              {error && <div className="alert-error">{error}</div>}
 
               <button type="submit" disabled={loading} className="btn-primary w-full">
                 {loading ? "处理中…" : mode === "login" ? "进入工作台" : "注册并登录"}
@@ -148,7 +144,7 @@ export default function LandingPage() {
               </button>
             </form>
 
-            <p className="mt-6 text-center text-xs text-slate-500">
+            <p className="mt-5 text-center text-xs text-slate-500">
               登录即代表同意平台服务条款与生成内容合规要求
             </p>
           </div>
@@ -168,11 +164,11 @@ function Feature({
   desc: string;
 }) {
   return (
-    <div className="glass rounded-2xl p-4">
-      <div className="mb-2 grid h-9 w-9 place-items-center rounded-lg bg-brand-500/15 text-brand-300">
+    <div className="glass rounded-md p-3.5">
+      <div className="mb-2 grid h-8 w-8 place-items-center rounded-md bg-brand-500/15 text-brand-300">
         {icon}
       </div>
-      <div className="text-sm font-semibold text-white">{title}</div>
+      <div className="text-[13px] text-white">{title}</div>
       <div className="text-xs text-slate-400">{desc}</div>
     </div>
   );

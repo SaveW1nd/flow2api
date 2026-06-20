@@ -44,6 +44,7 @@ export interface FlowAccount {
   email: string | null;
   chrome_profile: string;
   project_id: string | null;
+  proxy: string | null;
   paygate_tier: string | null;
   remaining_credits: number | null;
   status: "active" | "disabled" | "cooldown" | "invalid";
@@ -55,6 +56,8 @@ export interface FlowAccount {
   last_used_at: string | null;
   last_bearer_refresh: string | null;
   has_bearer: boolean;
+  has_session_token: boolean;
+  has_google_cookies: boolean;
   created_at: string;
 }
 

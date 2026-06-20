@@ -1,4 +1,4 @@
-# 在 Windows 宿主机原生运行出图/出视频 Worker(需要浏览器跑 reCAPTCHA)。
+# 在 Windows 宿主机原生运行出图/出视频 Worker(无头 Chrome broker 获取 reCAPTCHA token,纯 HTTP 兜底)。
 # 前提:postgres/redis/minio/backend 已用 docker compose 启动;已执行 setup_workers.ps1 建好 venv。
 #
 # 用法:  .\run_workers.ps1
@@ -13,23 +13,27 @@ if (-not (Test-Path $venvPy)) {
 
 # 连接 docker 暴露在 localhost 的服务(覆盖 .env 里的容器内主机名)
 $envVars = @{
-    POSTGRES_HOST       = "localhost"
-    POSTGRES_PORT       = "5432"
+    POSTGRES_HOST       = "127.0.0.1"
+    POSTGRES_PORT       = "15432"
     POSTGRES_USER       = "flow"
     POSTGRES_PASSWORD   = "flow_pass"
     POSTGRES_DB         = "flow2api"
-    REDIS_HOST          = "localhost"
+    REDIS_HOST          = "127.0.0.1"
     REDIS_PORT          = "6379"
     REDIS_DB            = "0"
-    S3_ENDPOINT         = "http://localhost:9000"
+    S3_ENDPOINT         = "http://127.0.0.1:9000"
     S3_PUBLIC_ENDPOINT  = "http://localhost:9000"
     S3_ACCESS_KEY       = "minioadmin"
     S3_SECRET_KEY       = "minioadmin"
     S3_BUCKET           = "flow2api"
-    # 各账号 Chrome Profile 根目录(Windows 本地路径)
     FLOW_PROFILES_DIR   = (Join-Path $root "flow_profiles")
     FLOW_HEADLESS       = "true"
     FLOW_USE_CURL       = "true"
+    # 本机 curl_cffi 支持的指纹版本(实测 chrome136 不支持)
+    FLOW_IMPERSONATE    = "chrome124"
+    # 全局默认代理:reCAPTCHA broker/协议请求与 HTTP 提交走同一代理->同一出口 IP(账号可在后台单独覆盖)。
+    # 留空=直连。例:http://root:lichao@64.83.17.68:3002 或 socks5://root:lichao@64.83.17.68:3001
+    FLOW_PROXY          = ""
 }
 foreach ($k in $envVars.Keys) { [Environment]::SetEnvironmentVariable($k, $envVars[$k], "Process") }
 New-Item -ItemType Directory -Force -Path $envVars["FLOW_PROFILES_DIR"] | Out-Null

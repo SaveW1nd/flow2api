@@ -38,14 +38,14 @@ export default function HistoryPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white">我的作品</h1>
-          <p className="mt-1 text-sm text-slate-400">
+          <h1 className="page-title">我的作品</h1>
+          <p className="page-sub">
             共 {data?.total ?? 0} 个生成任务
           </p>
         </div>
-        <div className="flex rounded-xl bg-ink-900/60 p-1">
+        <div className="flex rounded-md bg-ink-900/60 p-1">
           {([
             { id: "all", label: "全部" },
             { id: "image", label: "图片" },
@@ -55,7 +55,7 @@ export default function HistoryPage() {
               key={f.id}
               onClick={() => setFilter(f.id)}
               className={cn(
-                "rounded-lg px-4 py-1.5 text-sm font-medium transition",
+                "rounded px-3.5 py-1 text-[13px] transition",
                 filter === f.id
                   ? "bg-brand-500 text-white"
                   : "text-slate-400 hover:text-slate-200"
@@ -72,7 +72,7 @@ export default function HistoryPage() {
           {Array.from({ length: 8 }).map((_, i) => (
             <div
               key={i}
-              className="aspect-square animate-pulse rounded-2xl bg-white/5"
+              className="aspect-square animate-pulse rounded-md bg-white/5"
             />
           ))}
         </Grid>
@@ -93,7 +93,7 @@ export default function HistoryPage() {
 
 function Grid({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+    <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
       {children}
     </div>
   );
@@ -122,7 +122,7 @@ function TaskCard({ task }: { task: Task }) {
         )}
         <span
           className={cn(
-            "absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-medium",
+            "absolute left-2 top-2 rounded px-2 py-0.5 text-[10px]",
             STATUS_STYLE[task.status]
           )}
         >
@@ -134,7 +134,7 @@ function TaskCard({ task }: { task: Task }) {
             download
             target="_blank"
             rel="noreferrer"
-            className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-lg bg-black/50 text-white opacity-0 backdrop-blur transition group-hover:opacity-100"
+            className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-md bg-black/50 text-white opacity-0 backdrop-blur transition group-hover:opacity-100"
           >
             <Download className="h-3.5 w-3.5" />
           </a>

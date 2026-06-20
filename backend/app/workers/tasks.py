@@ -1,12 +1,12 @@
-"""Celery 任务:出图 / 出视频(真实 Google Flow 协议)。
+"""Celery 任务:出图 / 出视频(真实 Google Flow 协议,已实测跑通)。
 
-执行流程(对齐 google_flow_protocol 的账号池逻辑):
+执行流程(ST + 纯 HTTP reCAPTCHA 模型):
 1. 取任务,标记 running。
 2. 账号池选号 + 占用并发槽位。
-3. 获取该账号 Chrome Profile 的进程级互斥锁(同一 Profile 不能被多浏览器同时打开)。
-4. 浏览器 Oracle:打开 Profile,抓取新鲜 Bearer + reCAPTCHA token + 指纹头。
-5. HTTP 提交生成;出视频再轮询 + 下载 base64;鉴权失效则刷新一次重试。
-6. 结果转存对象存储,落库,推进度;失败则按 kind 冷却账号并退还额度。
+3. token_manager:用账号 ST 纯 HTTP 换/刷新 ya29 AT(带缓存)。
+4. reCAPTCHA Enterprise anchor/reload 纯 HTTP 协议获取 recaptcha token。
+5. HTTP 提交生成(application/json + chrome124 指纹);鉴权失效则强制刷新 AT + 重取 token 重试一次。
+6. 结果转存对象存储(出图为 fifeUrl 直链),落库,推进度;失败按 kind 冷却账号并退还额度。
 """
 
 from __future__ import annotations
@@ -21,24 +21,24 @@ from app.core.db_sync import SyncSessionLocal
 from app.models.enums import TaskStatus, TaskType
 from app.models.generation import GenerationTask
 from app.services.flow import protocol as P
+from app.services.flow import token_manager
 from app.services.flow.client import FlowClient, FlowError
 from app.services.flow.pool import (
     NoAccountAvailable,
-    account_lock_key,
     acquire_slot,
     build_credential,
     get_sync_redis,
     mark_failure,
     mark_success,
     profile_path,
+    resolve_proxy,
     update_bearer,
 )
-from app.services.flow.recaptcha import RecaptchaError, get_token_and_bearer
+from app.services.flow.recaptcha import RecaptchaError, get_recaptcha_token
 from app.services.progress import publish_progress
 from app.services.storage import store_bytes, store_remote_asset
 
 MAX_ACCOUNT_RETRIES = 3
-PROFILE_LOCK_TTL = settings.FLOW_VIDEO_MAX_WAIT + 180
 
 
 def _push(task: GenerationTask, status: TaskStatus, progress: int, error: str | None = None):
@@ -54,37 +54,41 @@ def _push(task: GenerationTask, status: TaskStatus, progress: int, error: str | 
     )
 
 
-class _ProfileLock:
-    """基于 Redis 的账号 Profile 互斥锁。"""
-
-    def __init__(self, account_id: int):
-        self.key = account_lock_key(account_id)
-        self.r = get_sync_redis()
-        self.acquired = False
-
-    def __enter__(self):
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            if self.r.set(self.key, "1", nx=True, ex=PROFILE_LOCK_TTL):
-                self.acquired = True
-                return self
-            time.sleep(1)
-        raise NoAccountAvailable("账号 Profile 正被占用")
-
-    def __exit__(self, *exc):
-        if self.acquired:
-            self.r.delete(self.key)
-
-
-def _store_outputs(outputs: list[dict], user_id: int) -> list[dict]:
+def _store_outputs(outputs: list[dict], user_id: int, proxy: str | None = None) -> list[dict]:
     stored = []
     for out in outputs:
         if "bytes" in out:
             url = store_bytes(out["bytes"], out["type"], user_id, ext=out.get("ext"))
         else:
-            url = store_remote_asset(out["url"], out["type"], user_id)
+            try:
+                url = store_remote_asset(out["url"], out["type"], user_id, proxy=proxy)
+            except Exception:  # noqa: BLE001
+                # If local object storage is unreachable, do not lose a successful Flow generation.
+                # Flow image URLs are signed but immediately usable by the frontend.
+                url = out["url"]
         stored.append({"url": url, "type": out["type"]})
     return stored
+
+
+def _refresh_at(db, account, *, force: bool = False) -> str:
+    """用账号 ST 换/刷新 ya29 AT,并把缓存写回账号。返回 AT。"""
+    if not account.session_token:
+        mark_failure(db, account, "账号缺少 session_token(ST)", kind="auth")
+        raise FlowError("账号缺少 session_token(ST),请在后台填入", retryable=False, kind="auth")
+    try:
+        tok = token_manager.get_access_token(
+            account.session_token,
+            force=force,
+            impersonate=settings.FLOW_IMPERSONATE,
+            proxy=resolve_proxy(account),
+        )
+    except token_manager.TokenError as exc:
+        mark_failure(db, account, str(exc), kind=exc.kind)
+        raise FlowError(str(exc), retryable=(exc.kind != "auth"), kind=exc.kind) from exc
+    if tok.email and not account.email:
+        account.email = tok.email
+    update_bearer(db, account, tok.token, None)
+    return tok.token
 
 
 def _attempt_once(db, task: GenerationTask, task_type: TaskType) -> bool:
@@ -93,64 +97,84 @@ def _attempt_once(db, task: GenerationTask, task_type: TaskType) -> bool:
         db.commit()
 
         action = P.ACTION_IMAGE if task_type == TaskType.image else P.ACTION_VIDEO
+        proxy = resolve_proxy(account)
 
-        with _ProfileLock(account.id):
-            # 1) 浏览器 oracle:拿 recaptcha + 刷新 bearer + 指纹头
-            try:
-                oracle = get_token_and_bearer(profile_path(account), action=action)
-            except RecaptchaError as exc:
-                mark_failure(db, account, str(exc), kind="recaptcha")
-                raise FlowError(str(exc), retryable=True, kind="recaptcha") from exc
-            update_bearer(db, account, oracle.bearer, oracle.browser_headers)
+        # 1) 刷新 AT(纯 HTTP,带缓存)
+        bearer = _refresh_at(db, account)
 
+        def build_client(b: str) -> FlowClient:
             cred = build_credential(account)
-            if not cred.bearer:
-                mark_failure(db, account, "无可用 Bearer", kind="auth")
-                raise FlowError("账号无 Bearer,需先在浏览器登录该 Profile", retryable=True, kind="auth")
+            cred.bearer = b
+            return FlowClient(cred, use_curl=settings.FLOW_USE_CURL, impersonate=settings.FLOW_IMPERSONATE)
 
-            client = FlowClient(
-                cred,
-                use_curl=settings.FLOW_USE_CURL,
-                impersonate=settings.FLOW_IMPERSONATE,
-            )
-
-            def progress_cb(p: int):
-                task.progress = p
-                db.commit()
-                _push(task, TaskStatus.running, p)
-
-            # 2) 提交生成(鉴权失效则刷新 oracle 一次重试)
-            for sub_attempt in range(2):
-                try:
-                    if task_type == TaskType.image:
-                        progress_cb(40)
-                        result = client.submit_image(task.prompt, task.params, oracle.recaptcha_token)
-                    else:
-                        result = client.submit_video(
-                            task.prompt, task.params, oracle.recaptcha_token, progress_cb
-                        )
-                    break
-                except FlowError as exc:
-                    if exc.kind == "auth" and sub_attempt == 0:
-                        oracle = get_token_and_bearer(profile_path(account), action=action)
-                        update_bearer(db, account, oracle.bearer, oracle.browser_headers)
-                        client = FlowClient(build_credential(account), use_curl=settings.FLOW_USE_CURL)
-                        continue
-                    mark_failure(db, account, str(exc), kind=exc.kind)
-                    raise
-
-            # 3) 转存对象存储
-            progress_cb(96)
-            stored = _store_outputs(result.outputs, task.user_id)
-
-            task.outputs = stored
-            task.status = TaskStatus.succeeded
-            task.progress = 100
-            task.finished_at = datetime.now(timezone.utc)
+        def progress_cb(p: int):
+            task.progress = p
             db.commit()
-            mark_success(db, account, remaining_credits=result.remaining_credits)
-            _push(task, TaskStatus.succeeded, 100)
-            return True
+            _push(task, TaskStatus.running, p)
+
+        # 2) reCAPTCHA 分数仍可能波动:每次失败都重新走纯 HTTP anchor/reload 取新 token,
+        #    重试期间不冷却账号(只在彻底耗尽后才冷却)。鉴权失效则强刷一次 AT。
+        result = None
+        last_exc: FlowError | None = None
+        auth_refreshed = False
+        retries = max(1, settings.FLOW_RECAPTCHA_RETRIES)
+        for attempt in range(retries):
+            progress_cb(30)
+            try:
+                oracle = get_recaptcha_token(
+                    profile_path(account),
+                    session_token=account.session_token,
+                        google_cookies=account.google_cookies,
+                    project_id=account.project_id,
+                    proxy=proxy,
+                    action=action,
+                )
+            except RecaptchaError as exc:
+                last_exc = FlowError(str(exc), retryable=True, kind="recaptcha")
+                time.sleep(settings.FLOW_RECAPTCHA_RETRY_DELAY)
+                continue
+
+            client = build_client(bearer)
+            try:
+                if task_type == TaskType.image:
+                    progress_cb(60)
+                    result = client.submit_image(task.prompt, task.params, oracle.recaptcha_token)
+                else:
+                    result = client.submit_video(
+                        task.prompt, task.params, oracle.recaptcha_token, progress_cb
+                    )
+                break
+            except FlowError as exc:
+                last_exc = exc
+                if exc.kind == "recaptcha":
+                    time.sleep(settings.FLOW_RECAPTCHA_RETRY_DELAY)
+                    continue
+                if exc.kind == "auth" and not auth_refreshed:
+                    auth_refreshed = True
+                    bearer = _refresh_at(db, account, force=True)
+                    continue
+                # quota / 其它不可重试错误:冷却并抛出
+                mark_failure(db, account, str(exc), kind=exc.kind)
+                raise
+
+        if result is None:
+            msg = str(last_exc) if last_exc else "生成失败(无结果)"
+            kind = last_exc.kind if last_exc else "transient"
+            mark_failure(db, account, msg, kind=kind)
+            raise FlowError(msg, retryable=True, kind=kind)
+
+        # 3) 转存对象存储(出图为 fifeUrl 签名直链)
+        progress_cb(96)
+        stored = _store_outputs(result.outputs, task.user_id, proxy=proxy)
+
+        task.outputs = stored
+        task.status = TaskStatus.succeeded
+        task.progress = 100
+        task.finished_at = datetime.now(timezone.utc)
+        db.commit()
+        mark_success(db, account, remaining_credits=result.remaining_credits)
+        _push(task, TaskStatus.succeeded, 100)
+        return True
 
 
 def _run_generation(task_id: int, task_type: TaskType) -> None:
@@ -172,7 +196,8 @@ def _run_generation(task_id: int, task_type: TaskType) -> None:
                 if _attempt_once(db, task, task_type):
                     return
             except NoAccountAvailable as exc:
-                last_error = str(exc)
+                if not last_error:
+                    last_error = str(exc)
                 time.sleep(2)
                 continue
             except FlowError as exc:

@@ -19,17 +19,23 @@ class FlowAccount(Base):
     label: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    # ya29 OAuth Bearer(会过期,由浏览器 oracle 刷新)
+    # __Secure-next-auth.session-token(ST,长期有效):用于 HTTP 换 ya29 AT
+    session_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # .google.com/accounts.google.com cookies(JSON 或 "a=b; c=d"),用于纯 HTTP reCAPTCHA 提高评分
+    google_cookies: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ya29 OAuth Bearer(AT,缓存值;由 ST 自动刷新)
     bearer_token: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # 持久化 Chrome Profile 目录名(相对 FLOW_PROFILES_DIR)
+    # 旧字段保留兼容;当前纯协议模式不使用 Chrome Profile
     chrome_profile: Mapped[str] = mapped_column(String(255), nullable=False)
 
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 该账号专用代理(留空则用全局 FLOW_PROXY)。reCAPTCHA 与 HTTP 提交走同一出口 IP。
+    proxy: Mapped[str | None] = mapped_column(String(255), nullable=True)
     paygate_tier: Mapped[str | None] = mapped_column(String(40), nullable=True)
     remaining_credits: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # 浏览器抓到的指纹头(JSON 字符串),用于 HTTP 提交对齐
+    # HTTP 指纹头(JSON 字符串),用于 HTTP 提交对齐
     browser_headers: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status: Mapped[AccountStatus] = mapped_column(

@@ -14,7 +14,7 @@ services:
       timeout: 3s
       retries: 10
     ports:
-      - "5432:5432"
+      - "127.0.0.1:15432:5432"
 
   redis:
     image: redis:7-alpine
@@ -65,11 +65,10 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - "8000:8000"
+      - "18000:8000"
 
-  # 出图/出视频 Worker 需要浏览器(reCAPTCHA)。默认在 Windows 宿主机原生运行
-  # (见 run_workers.ps1),不随 `docker compose up` 启动。
-  # 若要用 Docker 跑(需能拉取 Playwright 镜像):docker compose --profile docker-workers up -d
+  # 出图/出视频 Worker 默认在 Windows 宿主机原生运行(见 run_workers.ps1),
+  # 不随 `docker compose up` 启动。当前 reCAPTCHA 优先走无头 Chrome broker,纯 HTTP 协议兜底。
   worker_image:
     profiles: ["docker-workers"]
     build:
@@ -105,6 +104,9 @@ services:
       context: ./frontend
     restart: unless-stopped
     env_file: .env
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
     depends_on:
       - backend
     ports:

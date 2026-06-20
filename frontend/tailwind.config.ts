@@ -31,9 +31,20 @@ const config: Config = {
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
       },
+      borderRadius: {
+        none: "0",
+        sm: "3px",
+        DEFAULT: "4px",
+        md: "5px",
+        lg: "6px",
+        xl: "7px",
+        "2xl": "8px",
+        "3xl": "10px",
+        full: "9999px",
+      },
       boxShadow: {
-        glow: "0 0 40px -10px rgba(37,99,235,0.55)",
-        card: "0 8px 40px -12px rgba(2,8,23,0.6)",
+        glow: "0 0 18px -8px rgba(37,99,235,0.45)",
+        card: "0 4px 20px -12px rgba(2,8,23,0.5)",
       },
       backgroundImage: {
         "grid-faint":

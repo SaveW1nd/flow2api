@@ -53,13 +53,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-white/[0.06] bg-ink-950/60 p-5 backdrop-blur-xl lg:flex">
-        <div className="px-1 py-2">
+      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-white/[0.06] bg-ink-950/60 p-4 backdrop-blur-xl lg:flex">
+        <div className="px-1 py-1">
           <Logo />
         </div>
 
-        <nav className="mt-8 flex-1 space-y-1">
-          <p className="px-3 pb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+        <nav className="mt-6 flex-1 space-y-0.5">
+          <p className="px-3 pb-1.5 text-[10px] uppercase tracking-widest text-slate-500">
             创作
           </p>
           {navItems.map((item) => (
@@ -68,7 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           {me?.role === "admin" && (
             <>
-              <p className="px-3 pb-2 pt-6 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              <p className="px-3 pb-1.5 pt-5 text-[10px] uppercase tracking-widest text-slate-500">
                 管理后台
               </p>
               {adminItems.map((item) => (
@@ -83,12 +83,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="mt-auto">
-          <div className="glass mb-3 flex items-center gap-3 rounded-xl p-3">
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-cyanx-500 text-sm font-semibold text-white">
+          <div className="glass mb-2 flex items-center gap-2.5 rounded-md p-2.5">
+            <div className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-brand-500 to-cyanx-500 text-xs text-white">
               {me?.email?.[0]?.toUpperCase() ?? "U"}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-white">
+              <div className="truncate text-[13px] text-white">
                 {me?.full_name || me?.email || "—"}
               </div>
               <div className="truncate text-xs text-slate-400">
@@ -96,7 +96,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
-          <button onClick={logout} className="btn-ghost w-full text-sm">
+          <button onClick={logout} className="btn-ghost w-full">
             <LogOut className="h-4 w-4" />
             退出登录
           </button>
@@ -105,13 +105,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile top bar */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4 lg:hidden">
+        <header className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3 lg:hidden">
           <Logo />
-          <button onClick={logout} className="btn-ghost">
+          <button onClick={logout} className="btn-ghost btn-sm">
             <LogOut className="h-4 w-4" />
           </button>
         </header>
-        <main className="flex-1 p-5 sm:p-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1400px] flex-1 p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );
@@ -132,7 +132,7 @@ function NavLink({
     <Link
       href={href}
       className={cn(
-        "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
+        "flex items-center gap-2.5 rounded-md px-3 py-2 text-[13px] transition",
         active
           ? "bg-gradient-to-r from-brand-500/20 to-cyanx-500/10 text-white shadow-[inset_0_0_0_1px_rgba(76,130,247,0.3)]"
           : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"

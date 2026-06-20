@@ -27,13 +27,57 @@ async def list_accounts(db: AsyncSession = Depends(get_db)):
     return [FlowAccountOut.from_account(a) for a in rows]
 
 
+def _slug(text: str) -> str:
+    import re
+
+    s = re.sub(r"[^a-zA-Z0-9_-]+", "_", text.strip()).strip("_").lower()
+    return s or "acc"
+
+
 @router.post("/accounts", response_model=FlowAccountOut, status_code=201)
 async def create_account(payload: FlowAccountCreate, db: AsyncSession = Depends(get_db)):
-    account = FlowAccount(**payload.model_dump())
+    data = payload.model_dump()
+    if not data.get("chrome_profile"):
+        data["chrome_profile"] = _slug(data["label"])
+    account = FlowAccount(**data)
     db.add(account)
     await db.flush()
     await db.refresh(account)
     return FlowAccountOut.from_account(account)
+
+
+@router.post("/accounts/{account_id}/test")
+async def test_account(account_id: int, db: AsyncSession = Depends(get_db)):
+    """用账号 ST 纯 HTTP 换 AT,验证凭证是否有效(返回邮箱与过期时间)。"""
+    import anyio
+
+    from app.services.flow import token_manager
+    from app.services.flow.pool import resolve_proxy
+
+    account = await db.get(FlowAccount, account_id)
+    if not account:
+        raise HTTPException(404, "账号不存在")
+    if not account.session_token:
+        raise HTTPException(400, "账号缺少 session_token(ST)")
+    proxy = resolve_proxy(account)
+    try:
+        tok = await anyio.to_thread.run_sync(
+            lambda: token_manager.get_access_token(account.session_token, force=True, proxy=proxy)
+        )
+    except token_manager.TokenError as exc:
+        raise HTTPException(400, f"ST 无效:{exc}") from exc
+    from datetime import datetime, timezone
+
+    if tok.email and not account.email:
+        account.email = tok.email
+    account.bearer_token = tok.token
+    account.last_bearer_refresh = datetime.now(timezone.utc)
+    await db.flush()
+    return {
+        "ok": True,
+        "email": tok.email,
+        "expires_at": datetime.fromtimestamp(tok.expires_at, tz=timezone.utc).isoformat(),
+    }
 
 
 @router.patch("/accounts/{account_id}", response_model=FlowAccountOut)

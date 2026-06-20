@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = "minioadmin"
     S3_BUCKET: str = "flow2api"
     S3_REGION: str = "us-east-1"
+    MEDIA_DIR: str = "media"
+    MEDIA_PUBLIC_ENDPOINT: str = "http://localhost:18000/media"
 
     # First admin
     FIRST_ADMIN_EMAIL: str = "admin@flow2api.local"
@@ -49,14 +51,20 @@ class Settings(BaseSettings):
     FLOW_REQUEST_TIMEOUT: int = 120
     FLOW_VIDEO_MAX_WAIT: int = 600
     FLOW_VIDEO_POLL_INTERVAL: int = 3
-    # 用 curl_cffi 模拟 Chrome TLS 指纹(需安装 curl_cffi)
+    # 用 curl_cffi 模拟 Chrome TLS 指纹(需安装 curl_cffi);impersonate 取本机 curl_cffi 支持的版本
     FLOW_USE_CURL: bool = True
-    FLOW_IMPERSONATE: str = "chrome136"
-    # reCAPTCHA / bearer 浏览器 oracle
-    FLOW_HEADLESS: bool = True
-    # 各账号 Chrome 持久化 Profile 的根目录(容器内路径,需挂载卷)
+    FLOW_IMPERSONATE: str = "chrome124"
+    # reCAPTCHA 引擎:优先使用无头 Chrome broker 执行官方 Enterprise JS,纯 HTTP anchor/reload 作为兜底。
+    FLOW_HEADLESS: bool = False
+    FLOW_CHROME_PATH: str = ""
     FLOW_PROFILES_DIR: str = "/data/flow_profiles"
     FLOW_TOKEN_TIMEOUT: int = 90
+    # 全局默认代理(账号可单独覆盖)。格式:http://user:pass@host:port 或 socks5://user:pass@host:port
+    # 关键:reCAPTCHA broker/协议请求与 Flow HTTP 提交会走同一代理 -> 同一出口 IP,避免 token/请求 IP 不一致被判异常。
+    FLOW_PROXY: str = ""
+    # reCAPTCHA 分数有波动:每次失败重新取新 token 重试,重试期间不冷却账号。
+    FLOW_RECAPTCHA_RETRIES: int = 5
+    FLOW_RECAPTCHA_RETRY_DELAY: int = 4
     # 鉴权失败/限流账号的冷却秒数
     FLOW_AUTH_COOLDOWN: int = 120
     FLOW_QUOTA_COOLDOWN: int = 3600

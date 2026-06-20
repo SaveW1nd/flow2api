@@ -19,6 +19,7 @@ class VideoGenerateRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     duration: int = Field(default=5, ge=2, le=20)
     aspect_ratio: str = "16:9"
+    resolution: str = "VIDEO_RESOLUTION_1080P"
     image_url: str | None = None  # 图生视频可选首帧
     seed: int | None = None
     extra: dict[str, Any] = Field(default_factory=dict)

@@ -41,6 +41,8 @@ class NoAccountAvailable(FlowError):
 
 
 def profile_path(account: FlowAccount) -> str:
+    if os.path.isabs(account.chrome_profile):
+        return account.chrome_profile
     return os.path.join(settings.FLOW_PROFILES_DIR, account.chrome_profile)
 
 
@@ -57,8 +59,16 @@ def build_credential(account: FlowAccount) -> FlowCredential:
         bearer=account.bearer_token or "",
         project_id=account.project_id,
         session_id=account.session_id,
+        session_token=account.session_token,
+        google_cookies=account.google_cookies,
+        proxy=resolve_proxy(account),
         browser_headers=headers,
     )
+
+
+def resolve_proxy(account: FlowAccount) -> str | None:
+    """账号专用代理优先,否则回退到全局 FLOW_PROXY。"""
+    return (account.proxy or "").strip() or (settings.FLOW_PROXY or "").strip() or None
 
 
 @contextmanager
@@ -77,9 +87,16 @@ def acquire_slot(db: Session):
     account: FlowAccount | None = None
     try:
         accounts = db.execute(
-            select(FlowAccount).where(FlowAccount.status == AccountStatus.active)
+            select(FlowAccount).where(FlowAccount.status.in_([AccountStatus.active, AccountStatus.cooldown]))
         ).scalars().all()
-        candidates = [a for a in accounts if not (a.cooldown_until and a.cooldown_until > now)]
+        candidates = []
+        for a in accounts:
+            if a.status == AccountStatus.cooldown:
+                if a.cooldown_until and a.cooldown_until > now:
+                    continue
+                a.status = AccountStatus.active
+                a.cooldown_until = None
+            candidates.append(a)
         if not candidates:
             raise NoAccountAvailable("没有可用账号")
 

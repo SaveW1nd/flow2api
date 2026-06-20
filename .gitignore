@@ -24,9 +24,18 @@ yarn-error.log*
 postgres_data/
 minio_data/
 redis_data/
+backend/media/
 
 # FLOW Chrome profiles (runtime, contains account login state — never commit)
 flow_profiles/
+flow_cookie_profile*/
+
+# FLOW runtime captures / secrets
+google_cookies_export*.json
+backend/google_cookies_export*.json
+backend/download_capture.json
+_task_err.json
+live_openapi.json
 
 # Python venv for native workers
 backend/.venv/

@@ -7,11 +7,13 @@ from app.models.enums import AccountStatus
 
 class FlowAccountCreate(BaseModel):
     label: str
-    chrome_profile: str  # 持久化 Chrome Profile 目录名(相对 FLOW_PROFILES_DIR)
+    session_token: str  # __Secure-next-auth.session-token(ST),核心凭证
+    google_cookies: str | None = None  # Google cookies(JSON 或 cookie header),用于纯 HTTP reCAPTCHA 提分
+    project_id: str  # 出图为项目作用域,必填
+    chrome_profile: str | None = None  # 留空则用 label 自动生成
     email: str | None = None
-    bearer_token: str | None = None
-    project_id: str | None = None
     session_id: str | None = None
+    proxy: str | None = None  # 留空则用全局 FLOW_PROXY
     weight: int = 1
     max_concurrency: int = 2
 
@@ -19,10 +21,12 @@ class FlowAccountCreate(BaseModel):
 class FlowAccountUpdate(BaseModel):
     label: str | None = None
     email: str | None = None
-    bearer_token: str | None = None
+    session_token: str | None = None
+    google_cookies: str | None = None
     chrome_profile: str | None = None
     project_id: str | None = None
     session_id: str | None = None
+    proxy: str | None = None
     status: AccountStatus | None = None
     weight: int | None = None
     max_concurrency: int | None = None
@@ -36,6 +40,7 @@ class FlowAccountOut(BaseModel):
     email: str | None
     chrome_profile: str
     project_id: str | None
+    proxy: str | None
     paygate_tier: str | None
     remaining_credits: int | None
     status: AccountStatus
@@ -47,10 +52,14 @@ class FlowAccountOut(BaseModel):
     last_used_at: datetime | None
     last_bearer_refresh: datetime | None
     has_bearer: bool = False
+    has_session_token: bool = False
+    has_google_cookies: bool = False
     created_at: datetime
 
     @classmethod
     def from_account(cls, a) -> "FlowAccountOut":
         data = cls.model_validate(a)
         data.has_bearer = bool(getattr(a, "bearer_token", None))
+        data.has_session_token = bool(getattr(a, "session_token", None))
+        data.has_google_cookies = bool(getattr(a, "google_cookies", None))
         return data
