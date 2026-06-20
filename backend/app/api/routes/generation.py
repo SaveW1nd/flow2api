@@ -10,6 +10,7 @@ from app.models.enums import TaskStatus, TaskType
 from app.models.generation import GenerationTask, GenerationTaskEvent
 from app.models.user import User
 from app.schemas.generation import (
+    BatchPublicIdsIn,
     ImageGenerateRequest,
     ModelListOut,
     TaskCreatedOut,
@@ -116,6 +117,43 @@ async def list_tasks(
         page=page,
         page_size=page_size,
     )
+
+
+@router.post("/tasks/batch-delete")
+async def batch_delete_tasks(
+    payload: BatchPublicIdsIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (
+        await db.scalars(
+            select(GenerationTask).where(
+                GenerationTask.user_id == user.id,
+                GenerationTask.public_id.in_(payload.public_ids),
+            )
+        )
+    ).all()
+    for row in rows:
+        await db.delete(row)
+    return {"deleted": len(rows)}
+
+
+@router.post("/tasks/delete-failed")
+async def delete_failed_tasks(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (
+        await db.scalars(
+            select(GenerationTask).where(
+                GenerationTask.user_id == user.id,
+                GenerationTask.status == TaskStatus.failed,
+            )
+        )
+    ).all()
+    for row in rows:
+        await db.delete(row)
+    return {"deleted": len(rows)}
 
 
 @router.get("/tasks/{public_id}", response_model=TaskDetailOut)

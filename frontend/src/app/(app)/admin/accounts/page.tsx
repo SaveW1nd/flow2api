@@ -114,16 +114,16 @@ export default function AccountsPage() {
     toast.success("已批量删除");
   }
 
-  async function test(a: FlowAccount) {
+  async function refresh(a: FlowAccount) {
     try {
       const r = await api<{ email: string | null; expires_at: string }>(
-        `/admin/accounts/${a.id}/test`,
+        `/admin/accounts/${a.id}/refresh`,
         { method: "POST" }
       );
-      toast.success(`凭证有效:${r.email ?? "?"}(令牌至 ${new Date(r.expires_at).toLocaleString()})`);
+      toast.success(`刷新成功:${r.email ?? "?"}(AT 至 ${new Date(r.expires_at).toLocaleString()})`);
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "校验失败");
+      toast.error(err instanceof Error ? err.message : "刷新失败");
     }
   }
 
@@ -155,7 +155,7 @@ export default function AccountsPage() {
         <div>
           <h1 className="page-title">FLOW 账号池</h1>
           <p className="page-sub">
-            每个账号 = Session Token(ST)+ Project ID + Google Cookies,系统纯 HTTP 刷新 access token 并获取 reCAPTCHA
+            每个账号 = Session Token(ST)+ Project ID + Google Cookies,系统自动检测有效期,并可手工刷新 access token
           </p>
         </div>
         <div className="flex gap-2">
@@ -390,6 +390,7 @@ export default function AccountsPage() {
                 </td>
                 <td className="px-4 py-2.5 text-xs text-slate-400">
                   <div>Cookies: {a.cookies_expires_at ? new Date(a.cookies_expires_at).toLocaleString() : "未设置"}</div>
+                  <div>AT: {a.bearer_expires_at ? new Date(a.bearer_expires_at).toLocaleString() : "未刷新"}</div>
                   <div>下次刷新: {a.next_refresh_at ? new Date(a.next_refresh_at).toLocaleString() : "—"}</div>
                 </td>
                 <td className="px-4 py-2.5 text-slate-300">{a.remaining_credits ?? "—"}</td>
@@ -403,9 +404,9 @@ export default function AccountsPage() {
                 <td className="px-4 py-2.5">
                   <div className="flex justify-end gap-2">
                     <button
-                      onClick={() => test(a)}
+                      onClick={() => refresh(a)}
                       className="grid h-7 w-7 place-items-center rounded-md glass text-sky-300 hover:text-white"
-                      title="校验 ST 凭证"
+                      title="手工刷新凭证/检测有效期"
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
                     </button>

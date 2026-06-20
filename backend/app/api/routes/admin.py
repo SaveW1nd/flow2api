@@ -33,6 +33,13 @@ router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_cu
 @router.get("/accounts", response_model=list[FlowAccountOut])
 async def list_accounts(db: AsyncSession = Depends(get_db)):
     rows = (await db.scalars(select(FlowAccount).order_by(FlowAccount.id))).all()
+    changed = False
+    for account in rows:
+        if account.google_cookies and not account.cookies_expires_at:
+            account.cookies_expires_at = _cookie_expiry(account.google_cookies)
+            changed = changed or bool(account.cookies_expires_at)
+    if changed:
+        await db.flush()
     return [FlowAccountOut.from_account(a) for a in rows]
 
 
@@ -163,6 +170,11 @@ async def test_account(account_id: int, db: AsyncSession = Depends(get_db)):
         "email": tok.email,
         "expires_at": datetime.fromtimestamp(tok.expires_at, tz=timezone.utc).isoformat(),
     }
+
+
+@router.post("/accounts/{account_id}/refresh")
+async def refresh_account(account_id: int, db: AsyncSession = Depends(get_db)):
+    return await test_account(account_id, db)
 
 
 @router.patch("/accounts/{account_id}", response_model=FlowAccountOut)

@@ -1,8 +1,10 @@
 "use client";
 
-import { Download, Film, ImageIcon } from "lucide-react";
+import { Download, Film, ImageIcon, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { confirmDialog } from "@/components/ui/Confirm";
+import { toast } from "@/components/ui/Toast";
 import { api } from "@/lib/api";
 import type { Task, TaskList, TaskType } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -28,13 +30,33 @@ export default function HistoryPage() {
   const [data, setData] = useState<TaskList | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = () => {
     setLoading(true);
     const q = filter === "all" ? "" : `&type=${filter}`;
     api<TaskList>(`/generate/tasks?page=1&page_size=60${q}`)
       .then(setData)
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
   }, [filter]);
+
+  async function deleteFailed() {
+    const failedCount = data?.items.filter((item) => item.status === "failed").length ?? 0;
+    const ok = await confirmDialog({
+      title: "删除失败作品",
+      message: failedCount
+        ? `确认删除你的所有失败任务? 当前页有 ${failedCount} 个失败任务。`
+        : "确认删除你的所有失败任务?",
+      confirmText: "删除失败",
+      danger: true,
+    });
+    if (!ok) return;
+    const res = await api<{ deleted: number }>("/generate/tasks/delete-failed", { method: "POST" });
+    load();
+    toast.success(`已删除 ${res.deleted} 个失败任务`);
+  }
 
   return (
     <div>
@@ -45,25 +67,31 @@ export default function HistoryPage() {
             共 {data?.total ?? 0} 个生成任务
           </p>
         </div>
-        <div className="flex rounded-md bg-ink-900/60 p-1">
-          {([
-            { id: "all", label: "全部" },
-            { id: "image", label: "图片" },
-            { id: "video", label: "视频" },
-          ] as const).map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setFilter(f.id)}
-              className={cn(
-                "rounded px-3.5 py-1 text-[13px] transition",
-                filter === f.id
-                  ? "bg-brand-500 text-white"
-                  : "text-slate-400 hover:text-slate-200"
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-md bg-ink-900/60 p-1">
+            {([
+              { id: "all", label: "全部" },
+              { id: "image", label: "图片" },
+              { id: "video", label: "视频" },
+            ] as const).map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                className={cn(
+                  "rounded px-3.5 py-1 text-[13px] transition",
+                  filter === f.id
+                    ? "bg-brand-500 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={deleteFailed} className="btn-ghost text-red-300">
+            <Trash2 className="h-4 w-4" />
+            删除失败
+          </button>
         </div>
       </div>
 
