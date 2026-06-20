@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Plus, Power, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, Pencil, Plus, Power, Trash2, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
@@ -22,6 +22,20 @@ export default function AccountsPage() {
   const [showImport, setShowImport] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
   const [importText, setImportText] = useState("");
+  const [editing, setEditing] = useState<FlowAccount | null>(null);
+  const [editForm, setEditForm] = useState({
+    label: "",
+    email: "",
+    project_id: "",
+    session_token: "",
+    google_cookies: "",
+    proxy: "",
+    account_type: "normal",
+    cookies_expires_at: "",
+    auto_refresh_minutes: 50,
+    weight: 1,
+    max_concurrency: 2,
+  });
   const [form, setForm] = useState({
     label: "",
     email: "",
@@ -114,6 +128,44 @@ export default function AccountsPage() {
     toast.success("已批量删除");
   }
 
+  function startEdit(a: FlowAccount) {
+    setEditing(a);
+    setEditForm({
+      label: a.label,
+      email: a.email || "",
+      project_id: a.project_id || "",
+      session_token: "",
+      google_cookies: "",
+      proxy: a.proxy || "",
+      account_type: a.account_type,
+      cookies_expires_at: a.cookies_expires_at ? a.cookies_expires_at.slice(0, 16) : "",
+      auto_refresh_minutes: a.auto_refresh_minutes,
+      weight: a.weight,
+      max_concurrency: a.max_concurrency,
+    });
+    setShowForm(false);
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    const payload = {
+      ...editForm,
+      email: editForm.email || null,
+      project_id: editForm.project_id || null,
+      proxy: editForm.proxy || null,
+      cookies_expires_at: editForm.cookies_expires_at || null,
+      session_token: editForm.session_token || undefined,
+      google_cookies: editForm.google_cookies || undefined,
+    };
+    await api(`/admin/accounts/${editing.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    setEditing(null);
+    load();
+    toast.success("账号已更新");
+  }
+
   async function refresh(a: FlowAccount) {
     try {
       const r = await api<{ email: string | null; expires_at: string }>(
@@ -155,7 +207,7 @@ export default function AccountsPage() {
         <div>
           <h1 className="page-title">FLOW 账号池</h1>
           <p className="page-sub">
-            每个账号 = Session Token(ST)+ Project ID + Google Cookies,系统自动检测有效期,并可手工刷新 access token
+            每个账号 = Session Token(ST)+ Project ID + Google Cookies。单账号代理优先,留空则使用全局 FLOW_PROXY。
           </p>
         </div>
         <div className="flex gap-2">
@@ -312,6 +364,85 @@ export default function AccountsPage() {
         </div>
       )}
 
+      {editing && (
+        <div className="card mt-4 space-y-3.5 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm text-white">编辑账号: {editing.label}</div>
+              <div className="text-xs text-slate-500">留空 ST / Google Cookies 表示不覆盖原凭证</div>
+            </div>
+            <button onClick={() => setEditing(null)} className="btn-ghost btn-sm">
+              关闭
+            </button>
+          </div>
+          <div className="grid gap-3.5 sm:grid-cols-2">
+            <div>
+              <label className="label">名称</label>
+              <input className="input" value={editForm.label} onChange={(e) => setEditForm({ ...editForm, label: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Google 邮箱</label>
+              <input className="input" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <label className="label">Project ID</label>
+            <input className="input font-mono" value={editForm.project_id} onChange={(e) => setEditForm({ ...editForm, project_id: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">专用代理(留空使用全局 FLOW_PROXY)</label>
+            <input
+              className="input font-mono text-xs"
+              value={editForm.proxy}
+              onChange={(e) => setEditForm({ ...editForm, proxy: e.target.value })}
+              placeholder="http://user:pass@host:port 或 socks5://user:pass@host:port"
+            />
+          </div>
+          <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label className="label">账号类型</label>
+              <select className="input" value={editForm.account_type} onChange={(e) => setEditForm({ ...editForm, account_type: e.target.value })}>
+                <option value="normal">普号</option>
+                <option value="pro">PRO</option>
+                <option value="ula">ULA</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">权重</label>
+              <input type="number" className="input" value={editForm.weight} onChange={(e) => setEditForm({ ...editForm, weight: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label className="label">最大并发</label>
+              <input type="number" className="input" value={editForm.max_concurrency} onChange={(e) => setEditForm({ ...editForm, max_concurrency: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label className="label">自动刷新(分钟)</label>
+              <input type="number" className="input" value={editForm.auto_refresh_minutes} onChange={(e) => setEditForm({ ...editForm, auto_refresh_minutes: Number(e.target.value) })} />
+            </div>
+          </div>
+          <div>
+            <label className="label">Cookies 有效期(可选)</label>
+            <input type="datetime-local" className="input" value={editForm.cookies_expires_at} onChange={(e) => setEditForm({ ...editForm, cookies_expires_at: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">Session Token(ST · 留空不覆盖)</label>
+            <textarea className="input min-h-[72px] resize-none font-mono text-xs" value={editForm.session_token} onChange={(e) => setEditForm({ ...editForm, session_token: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">Google Cookies(留空不覆盖)</label>
+            <textarea className="input min-h-[88px] resize-none font-mono text-xs" value={editForm.google_cookies} onChange={(e) => setEditForm({ ...editForm, google_cookies: e.target.value })} />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setEditing(null)} className="btn-ghost">
+              取消
+            </button>
+            <button onClick={saveEdit} className="btn-primary">
+              保存修改
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card mt-4 overflow-x-auto">
         {selected.length > 0 && (
           <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2 text-xs text-slate-400">
@@ -403,6 +534,13 @@ export default function AccountsPage() {
                 </td>
                 <td className="px-4 py-2.5">
                   <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => startEdit(a)}
+                      className="grid h-7 w-7 place-items-center rounded-md glass text-slate-300 hover:text-white"
+                      title="编辑账号"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       onClick={() => refresh(a)}
                       className="grid h-7 w-7 place-items-center rounded-md glass text-sky-300 hover:text-white"

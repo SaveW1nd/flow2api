@@ -11,6 +11,21 @@ if (-not (Test-Path $venvPy)) {
     Write-Error "未找到 venv,请先运行 .\setup_workers.ps1"
 }
 
+function Get-ConfigValue($Name, $Default) {
+    $current = [Environment]::GetEnvironmentVariable($Name, "Process")
+    if (-not [string]::IsNullOrWhiteSpace($current)) {
+        return $current
+    }
+    $envFile = Join-Path $root ".env"
+    if (Test-Path $envFile) {
+        $line = Get-Content $envFile | Where-Object { $_ -match "^\s*$Name\s*=" } | Select-Object -First 1
+        if ($line) {
+            return ($line -replace "^\s*$Name\s*=", "").Trim()
+        }
+    }
+    return $Default
+}
+
 # 连接 docker 暴露在 localhost 的服务(覆盖 .env 里的容器内主机名)
 $envVars = @{
     POSTGRES_HOST       = "127.0.0.1"
@@ -33,7 +48,7 @@ $envVars = @{
     FLOW_IMPERSONATE    = "chrome124"
     # 全局默认代理:reCAPTCHA broker/协议请求与 HTTP 提交走同一代理->同一出口 IP(账号可在后台单独覆盖)。
     # 留空=直连。例:http://root:lichao@64.83.17.68:3002 或 socks5://root:lichao@64.83.17.68:3001
-    FLOW_PROXY          = ""
+    FLOW_PROXY          = (Get-ConfigValue "FLOW_PROXY" "")
 }
 foreach ($k in $envVars.Keys) { [Environment]::SetEnvironmentVariable($k, $envVars[$k], "Process") }
 New-Item -ItemType Directory -Force -Path $envVars["FLOW_PROFILES_DIR"] | Out-Null
