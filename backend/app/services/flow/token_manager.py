@@ -66,7 +66,8 @@ def _parse_expires(expires: str | None) -> float:
         return time.time() + 1800
 
 
-def _fetch(session_token: str, impersonate: str = "chrome124", proxy: str | None = None) -> AccessToken:
+def _fetch_once(session_token: str, impersonate: str, proxy: str | None) -> tuple[dict, int]:
+    """单次 GET 拉 session,不做语义判断。返回 (parsed_data, http_status)。"""
     from app.services.flow.proxy import curl_proxies
 
     headers = {
@@ -93,17 +94,35 @@ def _fetch(session_token: str, impersonate: str = "chrome124", proxy: str | None
     if status != 200:
         raise TokenError(f"ST 换 AT 失败 HTTP {status}", kind="auth")
     try:
-        data = json.loads(text) if text else {}
+        return (json.loads(text) if text else {}), status
     except json.JSONDecodeError as exc:
         raise TokenError("ST 换 AT 响应解析失败", kind="auth") from exc
 
-    at = data.get("access_token")
-    if not at:
-        raise TokenError("ST 已失效或无 access_token(请更新账号 session_token)", kind="auth")
-    return AccessToken(
-        token=at,
-        expires_at=_parse_expires(data.get("expires")),
-        email=(data.get("user") or {}).get("email"),
+
+def _fetch(session_token: str, impersonate: str = "chrome124", proxy: str | None = None) -> AccessToken:
+    """ST 换 AT。NextAuth 的 /api/auth/session 在 AT 过期时会先返回一个已过期的 AT
+    + error="ACCESS_TOKEN_REFRESH_NEEDED"(Google 那侧异步刷新),下一次同请求才返回新 AT。
+    所以遇到 stale 响应时自动重试,避免上游拿过期 token 触发 401。
+    """
+    for attempt in range(3):
+        data, _ = _fetch_once(session_token, impersonate, proxy)
+        at = data.get("access_token")
+        if not at:
+            raise TokenError("ST 已失效或无 access_token(请更新账号 session_token)", kind="auth")
+
+        exp = _parse_expires(data.get("expires"))
+        err = data.get("error")
+        stale = (err == "ACCESS_TOKEN_REFRESH_NEEDED") or (exp - _REFRESH_MARGIN <= time.time())
+        if not stale:
+            return AccessToken(token=at, expires_at=exp, email=(data.get("user") or {}).get("email"))
+
+        # 给 Google 一点时间完成后台 refresh;最后一次仍 stale 才报错
+        if attempt < 2:
+            time.sleep(1.2)
+
+    raise TokenError(
+        f"ST 换 AT 反复返回过期 token(error={err!r}),需要重新登录该账号",
+        kind="auth",
     )
 
 
