@@ -18,5 +18,7 @@ services:
       - "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; sleep 1; exec celery -A app.workers.celery_app worker -Q video -n video@%h --pool=solo -l info"
 
   frontend:
-    ports:
+    # !reset 让 override 替换主 compose 的 ports（默认是数组合并/追加，
+    # 会同时绑 3000+13000，撞上 server 上其他 next-server）
+    ports: !reset
       - "13000:3000"
