@@ -221,13 +221,25 @@ async def _cdp_call(ws, msg_id: int, method: str, params: dict | None = None):
             return msg.get("result", {})
 
 
-async def _browser_execute_token(port: int, project_id: str | None, action: str) -> str:
+async def _browser_execute_token(port: int, project_id: str | None, action: str, cookies: list | None = None) -> str:
     if websockets is None:
         raise RecaptchaError("缺少 websockets,无法使用官方 JS reCAPTCHA broker")
     ws_url = _pick_page_ws(port)
     async with websockets.connect(ws_url, max_size=16 * 1024 * 1024) as ws:
         await _cdp_call(ws, 1, "Page.enable")
         await _cdp_call(ws, 2, "Runtime.enable")
+        if cookies:
+            try:
+                await _cdp_call(ws, 50, "Network.enable")
+            except Exception:
+                pass
+            _cid = 51
+            for _c in cookies:
+                try:
+                    await _cdp_call(ws, _cid, "Network.setCookie", _c)
+                except Exception:
+                    pass
+                _cid += 1
         url = (
             f"https://labs.google/fx/tools/flow/project/{project_id}"
             if project_id
@@ -265,12 +277,31 @@ async def _browser_execute_token(port: int, project_id: str | None, action: str)
         return token
 
 
+def _cookies_for_cdp(session_token, google_cookies):
+    out = []
+    text = (google_cookies or "").strip()
+    if text:
+        try:
+            data = json.loads(text)
+            items = data if isinstance(data, list) else (data.get("cookies", []) if isinstance(data, dict) else [])
+            for it in items:
+                if isinstance(it, dict) and it.get("name") and it.get("value"):
+                    out.append({"name": it["name"], "value": it["value"], "domain": it.get("domain") or ".google.com", "path": "/", "secure": True})
+        except Exception:
+            pass
+    if session_token:
+        out.append({"name": P.SESSION_COOKIE_NAME, "value": session_token, "domain": "labs.google", "path": "/", "secure": True, "httpOnly": True})
+    return out
+
+
 def _get_recaptcha_token_browser(
     *,
     profile_dir: str,
     project_id: str | None,
     action: str,
     proxy: str | None,
+    session_token: str | None = None,
+    google_cookies: str | None = None,
 ) -> OracleResult:
     chrome = _resolve_chrome()
     port = _free_port()
@@ -285,6 +316,8 @@ def _get_recaptcha_token_browser(
         "--no-first-run",
         "--no-default-browser-check",
         "--remote-allow-origins=*",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
         *headless_args,
         *proxy_args,
         "about:blank",
@@ -292,7 +325,7 @@ def _get_recaptcha_token_browser(
     proc = subprocess.Popen(cmd)
     try:
         _wait_json(f"http://127.0.0.1:{port}/json/version", timeout=25)
-        token = asyncio.run(_browser_execute_token(port, project_id, action))
+        token = asyncio.run(_browser_execute_token(port, project_id, action, _cookies_for_cdp(session_token, google_cookies)))
         return OracleResult(
             recaptcha_token=token,
             browser_headers={
@@ -426,6 +459,8 @@ def get_recaptcha_token(
             project_id=project_id,
             action=action,
             proxy=proxy,
+            session_token=session_token,
+            google_cookies=google_cookies,
         )
     except RecaptchaError:
         return _get_recaptcha_token_http(

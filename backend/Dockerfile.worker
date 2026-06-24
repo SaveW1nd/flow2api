@@ -11,8 +11,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# 确保 chromium 可用(基础镜像已含,二次确认幂等)
-RUN python -m playwright install chromium
 
 COPY . .
 

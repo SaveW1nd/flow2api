@@ -1,0 +1,22 @@
+# 服务器特定的部署 override，配合主 docker-compose.yml 使用：
+#   docker compose -f docker-compose.yml -f docker-compose.server.yml up -d
+# 作用：
+# - Linux Docker 跑 Chromium reCAPTCHA broker 需要 Xvfb 起虚拟显示（mac 不需要）。
+# - Celery threads pool 在 reCAPTCHA broker 场景下不稳，改 solo pool 一进程一任务避坑。
+# - frontend 端口避开 mac 本地 dev 用的 3000，错峰到 13000。
+services:
+  worker_image:
+    command:
+      - "sh"
+      - "-c"
+      - "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; sleep 1; exec celery -A app.workers.celery_app worker -Q image -n image@%h --pool=solo -l info"
+
+  worker_video:
+    command:
+      - "sh"
+      - "-c"
+      - "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; sleep 1; exec celery -A app.workers.celery_app worker -Q video -n video@%h --pool=solo -l info"
+
+  frontend:
+    ports:
+      - "13000:3000"
