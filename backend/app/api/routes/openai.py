@@ -9,10 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_openai_api_user
 from app.core.db import get_db
 from app.models.enums import TaskStatus, TaskType
-from app.models.generation import GenerationTask
+from app.models.generation import GenerationTask, GenerationTaskEvent
 from app.models.user import User
 from app.schemas.generation import TaskDetailOut, TaskEventOut
-from app.services import quota
+from app.services import prompt_cache, quota
 from app.services.models_catalog import list_models
 from app.workers.celery_app import celery_app  # noqa: F401
 from app.workers.tasks import generate_image, generate_video
@@ -78,6 +78,53 @@ async def _create_openai_task(
     return task
 
 
+async def _try_cache_hit(
+    db: AsyncSession,
+    user: User,
+    task_type: TaskType,
+    prompt: str,
+    params: dict[str, Any],
+    amount: int,
+) -> GenerationTask | None:
+    """命中缓存时建一个 succeeded task，跳过 Celery；不命中返回 None。
+    quota 仍按命中量扣除（保留计费），节省的是 Google credits + 等待时间。
+    """
+    cached = await prompt_cache.find_cached_outputs(
+        db, task_type=task_type, prompt=prompt, params=params
+    )
+    if not cached:
+        return None
+    source_id, outputs = cached
+    await quota.check_rate_limit(user.id)
+    limit = user.daily_image_quota if task_type == TaskType.image else user.daily_video_quota
+    await quota.consume_quota(user.id, task_type, limit, amount=amount)
+    task = GenerationTask(
+        public_id=str(uuid.uuid4()),
+        user_id=user.id,
+        type=task_type,
+        status=TaskStatus.succeeded,
+        prompt=prompt,
+        params=params,
+        outputs=outputs,
+        progress=100,
+    )
+    db.add(task)
+    await db.flush()
+    db.add(
+        GenerationTaskEvent(
+            task_id=task.id,
+            level="info",
+            stage="cache_hit",
+            message=f"命中 prompt 缓存（源 task #{source_id}），跳过生成",
+            progress=100,
+            response={"source_task_id": source_id, "outputs": outputs},
+        )
+    )
+    await db.flush()
+    await db.refresh(task)
+    return task
+
+
 @router.get("/models")
 async def openai_models(user: User = Depends(get_openai_api_user)):
     return {"object": "list", "data": list_models()}
@@ -95,6 +142,17 @@ async def openai_image_generation(
         "num_outputs": payload.n,
         "extra": payload.extra,
     }
+    cached_task = await _try_cache_hit(db, user, TaskType.image, payload.prompt, params, payload.n)
+    if cached_task is not None:
+        await db.commit()
+        return {
+            "id": cached_task.public_id,
+            "object": "generation.task",
+            "status": cached_task.status.value,
+            "model": payload.model,
+            "task_url": f"/v1/tasks/{cached_task.public_id}",
+            "cached": True,
+        }
     task = await _create_openai_task(db, user, TaskType.image, payload.prompt, params, payload.n)
     await db.commit()
     async_result = generate_image.delay(task.id)
@@ -122,6 +180,17 @@ async def openai_video_generation(
         "resolution": "VIDEO_RESOLUTION_1080P",
         "extra": payload.extra,
     }
+    cached_task = await _try_cache_hit(db, user, TaskType.video, payload.prompt, params, 1)
+    if cached_task is not None:
+        await db.commit()
+        return {
+            "id": cached_task.public_id,
+            "object": "generation.task",
+            "status": cached_task.status.value,
+            "model": payload.model,
+            "task_url": f"/v1/tasks/{cached_task.public_id}",
+            "cached": True,
+        }
     task = await _create_openai_task(db, user, TaskType.video, payload.prompt, params, 1)
     await db.commit()
     async_result = generate_video.delay(task.id)

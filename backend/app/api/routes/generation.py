@@ -21,7 +21,7 @@ from app.schemas.generation import (
     VideoGenerateRequest,
 )
 from app.services.models_catalog import list_models as list_model_catalog
-from app.services import quota
+from app.services import prompt_cache, quota
 from app.workers.celery_app import celery_app  # noqa: F401  确保 Celery 应用(redis broker)被实例化为 current_app
 from app.workers.tasks import generate_image, generate_video
 
@@ -60,6 +60,50 @@ async def _create_task(
     return task
 
 
+async def _try_cache_hit(
+    db: AsyncSession,
+    user: User,
+    task_type: TaskType,
+    prompt: str,
+    params: dict,
+    num: int,
+) -> GenerationTask | None:
+    cached = await prompt_cache.find_cached_outputs(
+        db, task_type=task_type, prompt=prompt, params=params
+    )
+    if not cached:
+        return None
+    source_id, outputs = cached
+    await quota.check_rate_limit(user.id)
+    limit = user.daily_image_quota if task_type == TaskType.image else user.daily_video_quota
+    await quota.consume_quota(user.id, task_type, limit, amount=num)
+    task = GenerationTask(
+        public_id=str(uuid.uuid4()),
+        user_id=user.id,
+        type=task_type,
+        status=TaskStatus.succeeded,
+        prompt=prompt,
+        params=params,
+        outputs=outputs,
+        progress=100,
+    )
+    db.add(task)
+    await db.flush()
+    db.add(
+        GenerationTaskEvent(
+            task_id=task.id,
+            level="info",
+            stage="cache_hit",
+            message=f"命中 prompt 缓存（源 task #{source_id}），跳过生成",
+            progress=100,
+            response={"source_task_id": source_id, "outputs": outputs},
+        )
+    )
+    await db.flush()
+    await db.refresh(task)
+    return task
+
+
 @router.post("/image", response_model=TaskCreatedOut)
 async def create_image(
     payload: ImageGenerateRequest,
@@ -67,6 +111,12 @@ async def create_image(
     db: AsyncSession = Depends(get_db),
 ):
     params = payload.model_dump(exclude={"prompt"})
+    cached_task = await _try_cache_hit(
+        db, user, TaskType.image, payload.prompt, params, payload.num_outputs
+    )
+    if cached_task is not None:
+        await db.commit()
+        return TaskCreatedOut(public_id=cached_task.public_id, status=cached_task.status, type=cached_task.type)
     task = await _create_task(
         db, user, TaskType.image, payload.prompt, params, payload.num_outputs
     )
@@ -84,6 +134,10 @@ async def create_video(
     db: AsyncSession = Depends(get_db),
 ):
     params = payload.model_dump(exclude={"prompt"})
+    cached_task = await _try_cache_hit(db, user, TaskType.video, payload.prompt, params, 1)
+    if cached_task is not None:
+        await db.commit()
+        return TaskCreatedOut(public_id=cached_task.public_id, status=cached_task.status, type=cached_task.type)
     task = await _create_task(db, user, TaskType.video, payload.prompt, params, 1)
     await db.commit()
     async_result = generate_video.delay(task.id)
