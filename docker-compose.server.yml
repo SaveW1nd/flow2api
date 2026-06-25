@@ -17,6 +17,21 @@ services:
       - "-c"
       - "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & export DISPLAY=:99; sleep 1; exec celery -A app.workers.celery_app worker -Q video -n video@%h --pool=solo -l info"
 
+  # 极小 reCAPTCHA token broker：KleinAI(Go) 通过 HTTP 调它取 reCAPTCHA token。
+  # 复用 backend/app/services/flow/recaptcha.py 的浏览器路径（Chrome CDP），
+  # 不连 DB/Redis/MinIO，是 flow2api 大栈砍掉后唯一保留的 Python 服务。
+  recaptcha-broker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.broker
+    restart: unless-stopped
+    environment:
+      FLOW_HEADLESS: "true"
+      FLOW_CHROME_PATH: /usr/bin/chromium
+      FLOW_PROFILES_DIR: /tmp/flow_profiles
+    ports:
+      - "8900:8900"
+
   frontend:
     # !reset 让 override 替换主 compose 的 ports（默认是数组合并/追加，
     # 会同时绑 3000+13000，撞上 server 上其他 next-server）

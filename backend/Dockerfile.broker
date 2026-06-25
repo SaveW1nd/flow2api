@@ -1,0 +1,44 @@
+# 极小 reCAPTCHA token broker 镜像。
+# reCAPTCHA Enterprise 高分 token 必须在真实浏览器里产生（grecaptcha.enterprise.execute），
+# 容器内无显示器，用 Xvfb 起虚拟显示 + chromium。只装 broker 真正用到的依赖，不装 DB/Celery/Redis。
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    # recaptcha.py 浏览器路径：无头 + 容器内 chromium
+    FLOW_HEADLESS=true \
+    FLOW_CHROME_PATH=/usr/bin/chromium \
+    FLOW_PROFILES_DIR=/tmp/flow_profiles
+
+WORKDIR /app
+
+# chromium + xvfb-run 及 headless chromium 运行所需的最小系统库。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        chromium \
+        xvfb \
+        ca-certificates \
+        fonts-liberation \
+        libnss3 \
+        libxss1 \
+        libasound2 \
+        libgbm1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# broker 只需这些 pip 包（FastAPI 服务 + recaptcha.py import 的 curl_cffi/websockets + pydantic settings）。
+RUN pip install --upgrade pip && pip install \
+        "fastapi==0.115.6" \
+        "uvicorn[standard]==0.34.0" \
+        "pydantic==2.10.4" \
+        "pydantic-settings==2.7.1" \
+        "curl_cffi==0.7.4" \
+        "websockets==14.1"
+
+# 只拷 broker 自身 + 它 import 的 app 包（recaptcha.py / protocol.py / proxy.py / core.config）。
+COPY recaptcha_broker.py .
+COPY app ./app
+
+EXPOSE 8900
+
+# Xvfb 起虚拟显示后跑 uvicorn（headless chromium 仍偏好有 DISPLAY）。
+CMD ["xvfb-run", "-a", "uvicorn", "recaptcha_broker:app", "--host", "0.0.0.0", "--port", "8900"]
